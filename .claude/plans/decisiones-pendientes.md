@@ -17,7 +17,39 @@ Afecta: modelo datos, API, app, IA. Bloquea inicio desarrollo.
 - Limitado si usuario quiere tipos custom
 
 ```sql
--- Tabla por tipo
+-- Listas (compra, tareas, etc.)
+CREATE TABLE lists (
+  id UUID PRIMARY KEY,
+  user_id UUID REFERENCES users(id),
+  title TEXT NOT NULL,  -- "Compra Mercadona", "Compra semanal"
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE list_items (
+  id UUID PRIMARY KEY,
+  list_id UUID REFERENCES lists(id) ON DELETE CASCADE,
+  text TEXT NOT NULL  -- "Leche", "Pan", "Huevos"
+);
+
+-- Links con categoría fija
+CREATE TABLE links (
+  id UUID PRIMARY KEY,
+  user_id UUID REFERENCES users(id),
+  category TEXT NOT NULL CHECK (category IN ('vehiculo', 'pelicula', 'serie', 'otro')),
+  url TEXT NOT NULL,
+  image_url TEXT,
+  title TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**B) Schema semi-flexible** (equilibrado)
+- Tipos base predefinidos + campos JSONB para metadata custom
+- Categorías de links flexibles (no hardcoded)
+- Balance entre estructura y flexibilidad
+
+```sql
+-- Listas con items
 CREATE TABLE lists (
   id UUID PRIMARY KEY,
   user_id UUID REFERENCES users(id),
@@ -31,81 +63,57 @@ CREATE TABLE list_items (
   text TEXT NOT NULL
 );
 
-CREATE TABLE notes (
-  id UUID PRIMARY KEY,
-  user_id UUID REFERENCES users(id),
-  title TEXT,
-  content TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
+-- Links con categoría flexible + metadata
 CREATE TABLE links (
   id UUID PRIMARY KEY,
   user_id UUID REFERENCES users(id),
+  category TEXT NOT NULL,  -- cualquier valor: "vehiculo", "peli", "receta", etc.
   url TEXT NOT NULL,
+  image_url TEXT,
   title TEXT,
-  description TEXT,
+  metadata JSONB DEFAULT '{}',  -- {"precio": 15000, "km": 80000} para vehículos
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-```
 
-**B) Schema semi-flexible** (equilibrado)
-- Tipos base predefinidos + campos JSONB para metadata custom
-- Ej: `link` tiene `url`, `title` fijos + `tags`, `custom_fields` flexibles
-- Balance entre estructura y flexibilidad
-
-```sql
--- Tabla unificada con tipo + campos específicos + metadata flexible
-CREATE TABLE entities (
-  id UUID PRIMARY KEY,
-  user_id UUID REFERENCES users(id),
-  type TEXT NOT NULL CHECK (type IN ('list', 'note', 'link')),
-  title TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-
-  -- Campos específicos por tipo (nullable)
-  content TEXT,           -- para notes
-  url TEXT,               -- para links
-  items JSONB,            -- para lists
-
-  -- Campos flexibles para cualquier tipo
-  tags TEXT[] DEFAULT '{}',
-  metadata JSONB DEFAULT '{}'  -- custom fields usuario
-);
-
--- Ejemplo metadata: {"priority": "alta", "project": "trabajo"}
+-- Ejemplo: usuario puede crear categorías nuevas sin cambiar schema
 ```
 
 **C) Schema totalmente dinámico** (más complejo)
-- Usuario define sus propios tipos de entidad
-- Campos definidos por usuario
+- Usuario define sus propios tipos de colección con campos custom
 - Máxima flexibilidad, más complejidad en UI y validación
 - Riesgo: over-engineering para MVP
 
 ```sql
--- Tipos definidos por usuario
-CREATE TABLE entity_types (
+-- Tipos de colección definidos por usuario
+CREATE TABLE collection_types (
   id UUID PRIMARY KEY,
   user_id UUID REFERENCES users(id),
-  name TEXT NOT NULL,           -- "receta", "contacto", "proyecto"
-  schema JSONB NOT NULL         -- define campos y validación
+  name TEXT NOT NULL,           -- "vehículos", "películas", "lista compra"
+  item_schema JSONB NOT NULL    -- define campos de cada item
 );
 
--- Ejemplo schema: {
+-- Ejemplo item_schema para "vehículos": {
 --   "fields": [
---     {"name": "ingredientes", "type": "array"},
---     {"name": "tiempo_prep", "type": "number"},
---     {"name": "dificultad", "type": "enum", "values": ["fácil","media","difícil"]}
+--     {"name": "precio", "type": "number"},
+--     {"name": "km", "type": "number"},
+--     {"name": "marca", "type": "text"}
 --   ]
 -- }
 
--- Entidades genéricas
-CREATE TABLE entities (
+-- Colecciones
+CREATE TABLE collections (
   id UUID PRIMARY KEY,
   user_id UUID REFERENCES users(id),
-  type_id UUID REFERENCES entity_types(id),
-  data JSONB NOT NULL,          -- datos según schema del tipo
+  type_id UUID REFERENCES collection_types(id),
+  title TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Items genéricos (listas compra, links, todo)
+CREATE TABLE collection_items (
+  id UUID PRIMARY KEY,
+  collection_id UUID REFERENCES collections(id) ON DELETE CASCADE,
+  data JSONB NOT NULL  -- campos según schema del tipo
 );
 ```
 
